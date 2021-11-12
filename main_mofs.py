@@ -13,7 +13,7 @@ import time
 import ccdc.search
 import ccdc.io
 from os.path import join
-import os
+import os, sys
 import csv
 import numpy as np
 
@@ -52,7 +52,7 @@ searcher.add_plane_angle_constraint('ANGLE_C', 'PLANE1', 'PLANE2', (-5, 5))
 
 # Measure the constraints for each substructure found?
 searcher.add_plane_angle_measurement('ANGLE', 'PLANE1', 'PLANE2')
-searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (6.5, 7.5), vdw_corrected=False, type='any')
+searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (6.5, 7.2), vdw_corrected=False, type='any')
 
 # How to ensure nothing in-between?
 
@@ -62,45 +62,75 @@ searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (6.5, 7.5), vdw_corre
 # find hits
 start_time = time.time()
 # just get unique hits, compute number of hits per structure in the for loop below.
-hits = searcher.search(max_hit_structures=10, max_hits_per_structure=1)
-end_time = time.time()
 
-elapsed = end_time - start_time
-print('{0:d} Hits found in {1:.2f} seconds.'.format(len(hits), elapsed))
 f = open(join(outdir, datafile), 'w')
 
 cwriter = csv.writer(f)
 cwriter.writerow(['CSD_NAME', 'UNIT_VOL_A^3', 'CRYSTAL_MOLAR_DENS_MMOL_CM^3', 'SUBSTRUCT_COUNT', 'SUBSTRUCT_DENS_MMOL_CM^3', 
                   'PLANAR_ANGLE', 'PLANAR_ANGLE_STDEV', 'PLANAR_DIST', 'PLANAR_DIST_STDEV'])
-
-# mine just the mofs?
+searcher.settings.no_disorder = 'all'
+searcher.settings.max_r_factor = 5.0
+# mine just the mofs
 mof_csd = join(csd_subsetdir, 'MOF_subset.gcd')
-# want to find the number of hits per structure. (to find density)
-for e in ccdc.io.EntryReader(mof_csd):
-    print(e.identifier)
-
-
-for h in hits:
-    print(h.identifier)
+success_count, total_count = 0,0
+for h in ccdc.io.EntryReader(mof_csd):
     local_hits = searcher.search(h.crystal, max_hits_per_structure=10000)
-    a, d = zip(*[(s.measurements['ANGLE'], s.constraints['DIST']) for s in local_hits])
-
-    AVG_ANGLE = np.absolute(np.array(a)).mean()
-    STD_ANGLE = np.absolute(np.array(a)).std()
-    AVG_DIST = np.array(d).mean()
-    STD_DIST = np.array(d).std()
-
     nhits = len(local_hits)
-    vol = cm3 / h.crystal.cell_volume * 1000 # how many unit cells fit into a cubic centimetre
-    molar_dens = nhits * vol / avo # in mol/cm^3
-    cwriter.writerow([h.identifier, h.crystal.cell_volume, vol/avo, nhits, molar_dens, AVG_ANGLE, STD_ANGLE, AVG_DIST, STD_DIST])
-    # print('number of hits in unit cell: {0:d}'.format(nhits))
-    # print('molar density (mmol/cm^3)  : {0:.3f}'.format(molar_dens))
-    # print('mmols per cm^3:              {0:.3f}'.format(vol/avo))
-    # print('ANGLE: {0:.2f}'.format(AVG_ANGLE))
-    # print('DIST:  {0:.2f}'.format(AVG_DIST))
-    writer = ccdc.io.CrystalWriter(join(outdir, '{0:s}.cif'.format(h.identifier)), append=False)
-    writer.write(h.crystal)
+    N = 0
+    if(nhits>0):
+        rm = []
 
+        # make sure nothing is in between the matched substructures
+        for i, h in enumerate(local_hits):
+            benz1, benz2 = h.match_substructures()
+            atom_list = h.match_atoms()
+            # evaluate if an atoms from the first molecule are in line of sight with the second
+            eval_ = [a.is_in_line_of_sight(b) for a in atom_list[:6] for b in atom_list[6:]]
+            if np.all(eval_):
+                N+=1
+
+            else:
+                rm.append(i)
+
+        # delete matches that have stuff in between.
+        rm.sort()
+        rm.reverse()
+        [local_hits.pop(i) for i in rm]
+        # if there are any matches left, write to output.
+        if(len(local_hits)>0):
+            # spit out the matched atoms as a separate molecule file??
+            # outfile = join(outdir, '{0:s}_hits.mol2'.format(h.identifier))
+            # molwriter = ccdc.io.MoleculeWriter(outfile)
+            # mols = local_hits.superimpose()
+            # [molwriter.write(mm) for mm in mols]
+            # molwriter.close()
+            # write_c2m_file breaks with error: AttributeError: 'NoneType' object has no attribute 'substructure_index'
+            try:
+                local_hits.write_c2m_file(join(outdir, '{0:s}_hits.c2m'.format(h.identifier)))
+            except AttributeError:
+                print('{0:s} yielded attribute error when writing c2m file.'.format(h.identifier))
+            # count as a successful find
+            success_count += 1
+            a, d = zip(*[(s.measurements['ANGLE'], s.constraints['DIST']) for s in local_hits])
+
+            AVG_ANGLE = np.absolute(np.array(a)).mean()
+            STD_ANGLE = np.absolute(np.array(a)).std()
+            AVG_DIST = np.array(d).mean()
+            STD_DIST = np.array(d).std()
+
+            writer = ccdc.io.CrystalWriter(join(outdir, '{0:s}.cif'.format(h.identifier)), append=False)
+            writer.write(h.crystal)
+            vol = cm3 / h.crystal.cell_volume * 1000 # how many unit cells fit into a cubic centimetre
+            molar_dens = N * vol / avo # in mol/cm^3
+            
+            cwriter.writerow([h.identifier, h.crystal.cell_volume, vol/avo, N, molar_dens, AVG_ANGLE, STD_ANGLE, AVG_DIST, STD_DIST])
+
+    total_count += 1
+    if success_count == 10:
+        break
+
+end_time = time.time()
+elapsed = end_time - start_time
 f.close()
+print ("Total found = {0:d}, Total MOFs = {1:d}, success rate = {2:.3f}".format(success_count, total_count, float(success_count)/float(total_count)))
 

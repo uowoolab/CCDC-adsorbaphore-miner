@@ -62,7 +62,7 @@ searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (6.5, 7.5), vdw_corre
 # find hits
 start_time = time.time()
 # just get unique hits, compute number of hits per structure in the for loop below.
-hits = searcher.search(max_hit_structures=10, max_hits_per_structure=1)
+hits = searcher.search(max_hits_per_structure=1)
 end_time = time.time()
 
 elapsed = end_time - start_time
@@ -73,12 +73,8 @@ cwriter = csv.writer(f)
 cwriter.writerow(['CSD_NAME', 'UNIT_VOL_A^3', 'CRYSTAL_MOLAR_DENS_MMOL_CM^3', 'SUBSTRUCT_COUNT', 'SUBSTRUCT_DENS_MMOL_CM^3', 
                   'PLANAR_ANGLE', 'PLANAR_ANGLE_STDEV', 'PLANAR_DIST', 'PLANAR_DIST_STDEV'])
 
-# mine just the mofs?
-mof_csd = join(csd_subsetdir, 'MOF_subset.gcd')
-# want to find the number of hits per structure. (to find density)
-for e in ccdc.io.EntryReader(mof_csd):
-    print(e.identifier)
-
+searcher.settings.no_disorder = 'all'
+searcher.settings.max_r_factor = 5.0
 
 for h in hits:
     print(h.identifier)
