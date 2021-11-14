@@ -71,7 +71,6 @@ cwriter.writerow(['CSD_NAME', 'UNIT_VOL_A^3', 'CRYSTAL_MOLAR_DENS_MMOL_CM^3', 'S
 searcher.settings.no_disorder = 'all'
 searcher.settings.max_r_factor = 5.0
 # mine just the mofs
-mof_csd = join(csd_subsetdir, 'MOF_subset.gcd')
 success_count, total_count = 0,0
 for h in ccdc.io.EntryReader(mof_csd):
     local_hits = searcher.search(h.crystal, max_hits_per_structure=10000)
