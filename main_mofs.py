@@ -35,7 +35,7 @@ sub2 = searcher.add_substructure(arom2)
 searcher.add_plane('PLANE1', (sub1, 0), (sub1, 1), (sub1, 2),
                              (sub1, 3), (sub1, 4), (sub1, 5))
 
-searcher.add_plane('PLANE2', (sub2, 0), (sub2, 1), (sub2, 2))
+searcher.add_plane('PLANE2', (sub2, 0), (sub2, 1), (sub2, 2),
                              (sub2, 3), (sub2, 4), (sub2, 5))
 
 searcher.add_centroid('CENT1', (sub1, 0), (sub1, 1), (sub1, 2),
@@ -57,7 +57,7 @@ searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (6.5, 7.2), vdw_corre
 # Make sure the two aromatic planes are aligned
 searcher.add_vector('VEC1', 'CENT1', (sub1, 0))
 searcher.add_vector('VECN', 'CENT1', 'CENT2')
-searcher.add_vector_angle_constraint('ANGLE_N', 'VEC1', 'VECN', (80, 90)) 
+searcher.add_vector_angle_constraint('ANGLE_N', 'VEC1', 'VECN', (80, 100)) 
 
 # find hits
 start_time = time.time()
