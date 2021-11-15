@@ -51,12 +51,12 @@ searcher.add_centroid('CENT3', 'CENT1', 'CENT2')
 
 # make sure the angle is between -5 and +5 deg?
 searcher.add_plane_angle_constraint('ANGLE', 'PLANE1', 'PLANE2', (0, 10))
-searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (6.5, 7.2), vdw_corrected=False, type='any')
+searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (3.1, 4.0), vdw_corrected=True, type='any')
 
 # Make sure the two aromatic planes are aligned
-searcher.add_vector('VEC1', 'CENT1', (sub1, 0))
-searcher.add_vector('VECN', 'CENT1', 'CENT2')
-searcher.add_vector_angle_constraint('ANGLE_N', 'VEC1', 'VECN', (80, 100)) 
+#searcher.add_vector('VEC1', 'CENT1', (sub1, 0))
+#searcher.add_vector('VECN', 'CENT1', 'CENT2')
+#searcher.add_vector_angle_constraint('ANGLE_N', 'VEC1', 'VECN', (80, 100)) 
 
 # find hits
 start_time = time.time()
@@ -71,15 +71,51 @@ cwriter.writerow(['CSD_NAME', 'UNIT_VOL_A^3', 'CRYSTAL_MOLAR_DENS_MMOL_CM^3', 'S
 #searcher.settings.max_r_factor = 5.0
 # mine just the mofs
 success_count, total_count = 0,0
-files = [i for i in os.listdir(struct_dir) if i.endswith('.cif')]#[:30]
+files = [i for i in os.listdir(struct_dir) if i.endswith('.cif')]
+
+#files = [
+#         'AYOQEM_clean.cif',
+#         'BARZAW_clean.cif',
+#         'BARZIE_clean.cif',
+#         'BARZOK_clean.cif',
+#         'cm500700z_si_003_clean.cif',
+#         'DACZUF_clean.cif',
+#         'DORYUG_clean.cif',
+#         'ESEDIQ_clean.cif',
+#         'FOLLEZ_clean.cif',
+#         'GIZXET_clean.cif', 
+#         'ic5b00194_si_002_clean.cif',
+#         'KULMEK_clean.cif',
+#         'LULXEW_clean.cif',
+#         'MAQBIS_clean.cif',
+#         'MIXYID_clean.cif',
+#         'MUVROM_clean.cif',
+#         'PIJJEZ_clean.cif',
+#         'QUPJAN_clean.cif',
+#         'WITKIV_clean.cif',
+#         'YOYTOX_clean.cif',
+#         'YOYTUD_clean.cif',
+#         'YOYVAL_clean.cif', 
+#         'YOYVOZ01_clean.cif',
+#         'YOYVOZ_clean.cif',
+#         'YOZJEE01_clean.cif'
+#         ]
 
 reader = CrystalReader([join(struct_dir, j) for j in files])
+[i.assign_bonds() for i in reader]
 
-for h in reader:
+start_time = time.time()
+# just get unique hits, compute number of hits per structure in the for loop below.
+hits = searcher.search(reader, max_hits_per_structure=1)
+end_time = time.time()
+print('{0:d} structures found in {1:.2f} seconds.'.format(len(hits), elapsed))
+
+tot = len(hits)
+for h in hits:
     h.assign_bonds()
     local_hits = searcher.search(h, max_hits_per_structure=10000)
     nhits = len(local_hits)
-    #print('{0:s} hits: {1:d}'.format(h.identifier, nhits))
+    print('{0:s} hits: {1:d}'.format(h.identifier, nhits))
     if(nhits>0):
         rm = []
 
@@ -118,14 +154,15 @@ for h in reader:
             AVG_DIST = np.array(d).mean()
             STD_DIST = np.array(d).std()
 
-            #writer = ccdc.io.CrystalWriter(join(outdir, '{0:s}.cif'.format(h.identifier)), append=False)
-            #writer.write(h.crystal)
+            writer = ccdc.io.CrystalWriter(join(outdir, '{0:s}.cif'.format(h.identifier)), append=False)
+            writer.write(h)
+            writer.close()
             vol = cm3 / h.cell_volume * 1000 # how many unit cells fit into a cubic centimetre
             molar_dens = nhits * vol / avo # in mol/cm^3
             
             cwriter.writerow([h.identifier, h.cell_volume, vol/avo, nhits, molar_dens, AVG_ANGLE, STD_ANGLE, AVG_DIST, STD_DIST])
     total_count += 1
-
+    print('{0:.2f}% complete ({1:d} of {2:d})'.format(total_count/tot*100., total_count, tot))
 end_time = time.time()
 elapsed = end_time - start_time
 f.close()
