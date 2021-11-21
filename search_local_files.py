@@ -161,6 +161,7 @@ for h in reader:
         # make sure nothing is in between the matched substructures
         # this does not work!
         # https://ccdc.cam.ac.uk/forum/csd_python_api/Crystallography/25cf2d8f-b11c-e711-84d4-005056975d8a#26cf2d8f-b11c-e711-84d4-005056975d8a
+        # TODO(pboyd): make sure this works with a shifted benzene model (half in the unit cell + half out!)
         for i, hit in enumerate(local_hits):
             benz1, benz2 = hit.match_substructures()
             atom_list = hit.match_atoms()
