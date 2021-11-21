@@ -20,7 +20,7 @@ import numpy as np
 
 # structure stuff
 sys.path.insert(0, '/home/pboyd/modules/fa3ps')
-from faps import Structure, Atom, Cell, minimum_image
+from faps import Structure, Atom, Cell, minimum_image, min_distance
 
 avo = 6.02214076e23 
 cm3 = 1e24  # A^3 / cm^3
@@ -144,12 +144,14 @@ for h in reader:
         fstr.atoms.append(Atom(idx=atom.index ,
                                pos=coords, 
                                at_type=atom.atomic_symbol, 
-                               mass=atom.atomic_weight))
+                               mass=atom.atomic_weight,
+                               parent=fstr))
         assert (atom.index == len(fstr.atoms)-1)
 
     pp = (h.cell_lengths.a, h.cell_lengths.b, h.cell_lengths.c,
             h.cell_angles.alpha, h.cell_angles.beta, h.cell_angles.gamma)
     fstr.cell.params = pp
+    [at.get_fractional_coordinate() for at in fstr.atoms]
     local_hits = searcher.search(h, max_hits_per_structure=10000)
     nhits = len(local_hits)
     print('{0:s} hits: {1:d}'.format(h.identifier, nhits))
@@ -158,26 +160,33 @@ for h in reader:
 
         # make sure nothing is in between the matched substructures
         # this does not work!
+        # https://ccdc.cam.ac.uk/forum/csd_python_api/Crystallography/25cf2d8f-b11c-e711-84d4-005056975d8a#26cf2d8f-b11c-e711-84d4-005056975d8a
         for i, hit in enumerate(local_hits):
-            #benz1, benz2 = hit.match_substructures()
+            benz1, benz2 = hit.match_substructures()
             atom_list = hit.match_atoms()
             indices = [i.index for i in atom_list]
+            # create first 
+            c = [Atom(idx=None, pos=i.coordinates, at_type=i.atomic_symbol,mass=i.atomic_weight,parent=fstr) for i in benz1.atoms] 
+            # create second
+            c2 = [Atom(idx=None, pos=i.coordinates, at_type=i.atomic_symbol,mass=i.atomic_weight,parent=fstr) for i in benz2.atoms] 
+            coords = ([i.coordinates[:] for i in benz1.atoms] + [i.coordinates[:] for i in benz2.atoms])
+            # coords = [i.coordinates for i in atom_list] # atom list doesn't work! only in unit cell. must use substructures from match.
+
             # COM make sure periodic image shifted. for each aromatic ring
-            a1 = fstr.atoms[indices[0]]
-            
-            shifted_wrt_a1 = minimum_image(a1, [], fstr.cell.cell)
+            centre = np.mean(coords, axis=0)
 
             # make sure middle of COMs is shifted.
 
             # measure minimum image distance of all non-adsorbaphore atoms
             # make sure not in van der waals radii.
 
-
-            other_atoms = [i for i in h.molecule.atoms if i.index not in indices]
+            other_atoms = [fstr.atoms[i.index] for i in h.molecule.atoms if i.index not in indices]
             print(other_atoms) 
-            print(hit.dummy_point_objects('CENT3D'))
             # i.fractional_coordinates, i.vdw_radius, i.coordinates
-
+            # parent=fstr does this add the atom to fstr?
+            comat = Atom(idx=None, pos=centre, at_type='X', mass=0.0, parent=fstr)
+            dists = [min_distance(comat, iat, cell=fstr.cell.cell) for iat in other_atoms] 
+            print(dists)
             sys.exit()
             vector_object = hit.vector_objects('VECN')
             print(vector_object)
@@ -236,3 +245,28 @@ elapsed = end_time-start_time
 rate = float(success_count)/float(total_count) if total_count > 0 else 0.0
 print ("Total found = {0:d}, Total MOFs = {1:d}, success rate = {2:.3f}".format(success_count, total_count, rate))
 
+#you can generate molecules outside the unit cell with the translate parameter of the symmetric_molecule() method if you 
+# want explicit control of the symmety operator, or you can generate expanded representations of the crystal through 
+# methods such as packing_shell() and molecular_shell().  So, for example, you could use the molecular shell:
+#
+#mol = crystal.molecular_shell()
+#atoms_of_interest = [a for a in mol.atoms if a.label == 'Te1']
+#min_dist = min(MolecularDescriptors.atom_distance(a, b) for a in atoms_of_interest for b in atoms_of_interest if a != b)
+#
+#or by hand you can calculate all translated symmetric molecules:
+#
+#expansions = [
+#    crystal.symmetric_molecule(symmop, (i, j, k))
+#    for symmop in cry.symmetry_operators
+#    for i in range(-2, 3)
+#    for j in range(-2, 3)
+#    for k in range(-2, 3)
+#]
+#
+#min_dist = min(
+#    MolecularDescriptors.atom_distance(expansions[i].atom('Te1'), expansions[j].atom('Te1'))
+#    for i in range(len(expansions)) for j in range(len(expansions))
+#    if i != j
+#)
+#
+#Is either of these solutions what you are after?
