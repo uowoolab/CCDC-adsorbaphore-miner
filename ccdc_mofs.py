@@ -12,35 +12,17 @@ MOF subset is here
 import time
 import ccdc.search
 import ccdc.io
-from ccdc.io import CrystalReader, MoleculeWriter, CrystalWriter
 from os.path import join
 import os, sys
 import csv
 import numpy as np
 
-# structure stuff
-sys.path.insert(0, '/home/pboyd/modules/fa3ps')
-from faps import Structure, Atom, Cell, minimum_image, min_distance
-
 avo = 6.02214076e23 
 cm3 = 1e24  # A^3 / cm^3
+
 outdir = os.getcwd()
-struct_dir = sys.argv[1] 
 csd_subsetdir = join(os.environ['CSDHOME'], 'subsets')
-datafile = 'substructure_data.csv'
-
-def benz_search():
-    searcher = ccdc.search.SubstructureSearch()
-    benz_smarts = 'a1aaaaa1'
-    arom = ccdc.search.SMARTSSubstructure(benz_smarts)
-    sub1 = searcher.add_substructure(arom)
-    # dummy angle and dist constraints so the code below doesn't break
-    searcher.add_angle_constraint('ANGLE', (sub1, 0), (sub1, 1), (sub1, 2), (-360, 360))
-    searcher.add_distance_constraint('DIST', (sub1, 0), (sub1, 1), ('<', 8.0), type='any')
-    
-    return searcher
-
-
+datafile = 'csd_data.csv'
 def adsorbaphore_search():
     searcher = ccdc.search.SubstructureSearch()
     benz_smarts = 'a1aaaaa1'
@@ -91,52 +73,15 @@ f = open(join(outdir, datafile), 'w')
 
 cwriter = csv.writer(f)
 cwriter.writerow(['CSD_NAME', 'UNIT_VOL_A^3', 'CRYSTAL_MOLAR_DENS_MMOL_CM^3', 'SUBSTRUCT_COUNT', 'SUBSTRUCT_DENS_MMOL_CM^3', 'PLANAR_ANGLE', 'PLANAR_ANGLE_STDEV', 'PLANAR_DIST', 'PLANAR_DIST_STDEV'])
-#searcher.settings.no_disorder = 'all'
-#searcher.settings.max_r_factor = 5.0
 # mine just the mofs
 success_count, total_count = 0,0
-files = [i for i in os.listdir(struct_dir) if i.endswith('.cif')]
 
-#files = [
-#         'AYOQEM_clean.cif',
-#         'BARZAW_clean.cif',
-#         'BARZIE_clean.cif',
-#         'BARZOK_clean.cif',
-#         'cm500700z_si_003_clean.cif',
-#         'DACZUF_clean.cif',
-#         'DORYUG_clean.cif',
-#         'ESEDIQ_clean.cif',
-#         'FOLLEZ_clean.cif',
-#         'GIZXET_clean.cif', 
-#         'ic5b00194_si_002_clean.cif',
-#         'KULMEK_clean.cif',
-#         'LULXEW_clean.cif',
-#         'MAQBIS_clean.cif',
-#         'MIXYID_clean.cif',
-#         'MUVROM_clean.cif',
-#         'PIJJEZ_clean.cif',
-#         'QUPJAN_clean.cif',
-#         'WITKIV_clean.cif',
-#         'YOYTOX_clean.cif',
-#         'YOYTUD_clean.cif',
-#         'YOYVAL_clean.cif', 
-#         'YOYVOZ01_clean.cif',
-#         'YOYVOZ_clean.cif',
-#         'YOZJEE01_clean.cif'
-#         ]
-
-#files = ['str_m4_o29_o29_acs_sym.46.cif']
-
-reader = CrystalReader([join(struct_dir, j) for j in files])
-start_time = time.time()
-# just get unique hits, compute number of hits per structure in the for loop below.
-#hits = searcher.search(reader, max_hits_per_structure=1)
-#tot = len(hits)
-tot = len(reader)
-
-#for h in hits:
-for h in reader:
-    h.assign_bonds()
+searcher.settings.no_disorder = 'all'
+searcher.settings.max_r_factor = 5.0
+# mine just the mofs
+mof_csd = join(csd_subsetdir, 'MOF_subset.gcd')
+tot = len(mof_csd)
+for h in ccdc.io.EntryReader(mof_csd):
     # create a faps structure
     fstr = Structure(h.identifier)
     # need to ensure that h.molecule will give you the whole unit cell
@@ -154,7 +99,7 @@ for h in reader:
             h.cell_angles.alpha, h.cell_angles.beta, h.cell_angles.gamma)
     fstr.cell.params = pp
     [at.get_fractional_coordinate() for at in fstr.atoms]
-    local_hits = searcher.search(h, max_hits_per_structure=10000)
+    local_hits = searcher.search(h.crystal, max_hits_per_structure=10000)
     nhits = len(local_hits)
     print('{0:s} hits: {1:d}'.format(h.identifier, nhits))
     if(nhits>0):
@@ -210,11 +155,6 @@ for h in reader:
         # if there are any matches left, write to output.
     if(nhits>0):
         # spit out the matched atoms as a separate molecule file??
-        # outfile = join(outdir, '{0:s}_hits.mol2'.format(h.identifier))
-        # molwriter = ccdc.io.MoleculeWriter(outfile)
-        # mols = local_hits.superimpose()
-        # [molwriter.write(mm) for mm in mols]
-        # molwriter.close()
         # write_c2m_file breaks with error: AttributeError: 'NoneType' object has no attribute 'substructure_index'
         try:
             local_hits.write_c2m_file(join(outdir, '{0:s}_hits.c2m'.format(h.identifier)))
@@ -239,34 +179,9 @@ for h in reader:
     writer.write(h)
     writer.close()
 f.close()
-end_time = time.time()
-elapsed = end_time-start_time
-#print('{0:d} structures found in {1:.2f} seconds.'.format(len(hits), elapsed))
-rate = float(success_count)/float(total_count) if total_count > 0 else 0.0
-print ("Total found = {0:d}, Total MOFs = {1:d}, success rate = {2:.3f}".format(success_count, total_count, rate))
 
-#you can generate molecules outside the unit cell with the translate parameter of the symmetric_molecule() method if you 
-# want explicit control of the symmety operator, or you can generate expanded representations of the crystal through 
-# methods such as packing_shell() and molecular_shell().  So, for example, you could use the molecular shell:
-#
-#mol = crystal.molecular_shell()
-#atoms_of_interest = [a for a in mol.atoms if a.label == 'Te1']
-#min_dist = min(MolecularDescriptors.atom_distance(a, b) for a in atoms_of_interest for b in atoms_of_interest if a != b)
-#
-#or by hand you can calculate all translated symmetric molecules:
-#
-#expansions = [
-#    crystal.symmetric_molecule(symmop, (i, j, k))
-#    for symmop in cry.symmetry_operators
-#    for i in range(-2, 3)
-#    for j in range(-2, 3)
-#    for k in range(-2, 3)
-#]
-#
-#min_dist = min(
-#    MolecularDescriptors.atom_distance(expansions[i].atom('Te1'), expansions[j].atom('Te1'))
-#    for i in range(len(expansions)) for j in range(len(expansions))
-#    if i != j
-#)
-#
-#Is either of these solutions what you are after?
+end_time = time.time()
+elapsed = end_time - start_time
+f.close()
+print ("Total found = {0:d}, Total MOFs = {1:d}, success rate = {2:.3f}".format(success_count, total_count, float(success_count)/float(total_count)))
+
