@@ -191,7 +191,7 @@ for h in reader:
             # hit.molecule.atom
             dists = [min_distance(comat, iat, cell=fstr.cell.cell)-
                     h.molecule.atoms[iat.idx].vdw_radius for iat in other_atoms]
-            print(dists)
+            
             eval_ = [i > 0.0 for i in dists]
 
             # vector and find all atoms closest points to vector.
