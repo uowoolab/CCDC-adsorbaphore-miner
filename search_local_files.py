@@ -139,6 +139,8 @@ for h in reader:
     h.assign_bonds()
     # create a faps structure
     fstr = Structure(h.identifier)
+    # need to ensure that h.molecule will give you the whole unit cell
+    # atoms instead of just the asymmetric ones.
     for atom in h.molecule.atoms:
         coords = (atom.coordinates.x, atom.coordinates.y, atom.coordinates.z)
         fstr.atoms.append(Atom(idx=atom.index ,
@@ -182,25 +184,22 @@ for h in reader:
             # make sure not in van der waals radii.
 
             other_atoms = [fstr.atoms[i.index] for i in h.molecule.atoms if i.index not in indices]
-            print(other_atoms) 
             # i.fractional_coordinates, i.vdw_radius, i.coordinates
             # parent=fstr does this add the atom to fstr?
             comat = Atom(idx=None, pos=centre, at_type='X', mass=0.0, parent=fstr)
-            dists = [min_distance(comat, iat, cell=fstr.cell.cell) for iat in other_atoms] 
+            # taking a faps Structure Atom, getting the vdw_radius from
+            # hit.molecule.atom
+            dists = [min_distance(comat, iat, cell=fstr.cell.cell)-
+                    h.molecule.atoms[iat.idx].vdw_radius for iat in other_atoms]
             print(dists)
-            sys.exit()
-            vector_object = hit.vector_objects('VECN')
-            print(vector_object)
-            # evaluate if an atoms from the first molecule are in line of sight with the second
-            #eval_ = [a.is_in_line_of_sight(b) for a in atom_list[:6] for b in atom_list[6:]]
-            eval_ = [a.is_in_line_of_sight(b) for (a,b) in zip(atom_list[:6], atom_list[6:])]
+            eval_ = [i > 0.0 for i in dists]
+
             # vector and find all atoms closest points to vector.
             # Benchmark this.
 
             # np.abs(np.cross(v, crystal_atoms_that_are_not_part_of_the_substructure - v[0]) / np.linalg.norm(v)) 
             # then subtract the vanderwaals radius of the crystal atoms.
-        
-            print(np.unique(eval_, return_counts=True))
+            #sys.exit()
             if not np.all(eval_):
                 nhits-=1
                 rm.append(i)
