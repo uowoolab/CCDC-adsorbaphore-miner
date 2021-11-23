@@ -68,16 +68,14 @@ def adsorbaphore_search():
     searcher.add_dummy_point('CENT3D', 0.0, 'CENT3', 'CENT2')
     
     # Make sure the angle is between -5 and +5 deg?
-    searcher.add_plane_angle_constraint('ANGLE', 'PLANE1', 'PLANE2', ('<=', 10))
-    searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (6.8, 8.4), vdw_corrected=False, type='any')
+    searcher.add_plane_angle_constraint('ANGLE', 'PLANE1', 'PLANE2', (-5, 5))
+    searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (6.8, 7.4), vdw_corrected=False, type='any')
     
     # Make sure the two aromatic planes are aligned
-    searcher.add_vector('VEC1', 'CENT1', (sub1, 0))
+    searcher.add_vector('VEC1', 'CENT1', (sub1, 3))
     searcher.add_vector('VECN', 'CENT1', 'CENT2')
-    searcher.add_vector_angle_constraint('ANGLE_N', 'VEC1', 'VECN', (70, 100)) 
+    searcher.add_vector_angle_constraint('ANGLE_N', 'VEC1', 'VECN', (81, 99)) 
 
-    # To check if atoms between adsorbaphore
-    # searcher.add
     return searcher
 
 searcher = adsorbaphore_search()
@@ -156,7 +154,6 @@ for h in reader:
     [at.get_fractional_coordinate() for at in fstr.atoms]
     local_hits = searcher.search(h, max_hits_per_structure=10000)
     nhits = len(local_hits)
-    print('{0:s} hits: {1:d}'.format(h.identifier, nhits))
     if(nhits>0):
         rm = []
 
@@ -190,7 +187,7 @@ for h in reader:
             # taking a faps Structure Atom, getting the vdw_radius from
             # hit.molecule.atom
             dists = [min_distance(comat, iat, cell=fstr.cell.cell)-
-                    h.molecule.atoms[iat.idx].vdw_radius for iat in other_atoms]
+                    h.molecule.atoms[iat.idx].vdw_radius*1.25 for iat in other_atoms]
             
             eval_ = [i > 0.0 for i in dists]
 
@@ -216,10 +213,10 @@ for h in reader:
         # [molwriter.write(mm) for mm in mols]
         # molwriter.close()
         # write_c2m_file breaks with error: AttributeError: 'NoneType' object has no attribute 'substructure_index'
-        try:
-            local_hits.write_c2m_file(join(outdir, '{0:s}_hits.c2m'.format(h.identifier)))
-        except (AttributeError, NotImplementedError) as e:
-            print('{0:s} yielded attribute error when writing c2m file.'.format(h.identifier))
+        #try:
+        #    local_hits.write_c2m_file(join(outdir, '{0:s}_hits.c2m'.format(h.identifier)))
+        #except (AttributeError, NotImplementedError) as e:
+        #    print('{0:s} yielded attribute error when writing c2m file.'.format(h.identifier))
         # count as a successful find
         success_count += 1
         a, d = zip(*[(s.constraints['ANGLE'], s.constraints['DIST']) for s in local_hits])
@@ -233,11 +230,13 @@ for h in reader:
         molar_dens = nhits * vol / avo # in mol/cm^3
         
         cwriter.writerow([h.identifier, h.cell_volume, vol/avo, nhits, molar_dens, AVG_ANGLE, STD_ANGLE, AVG_DIST, STD_DIST])
+        writer = ccdc.io.CrystalWriter(join(outdir, '{0:s}.cif'.format(h.identifier)), append=False)
+        writer.write(h)
+        writer.close()
     total_count += 1
+    print('{0:s} hits: {1:d}'.format(h.identifier, nhits))
+    #print([hit.constraints['ANGLE_N'] for hit in local_hits])
     print('{0:.2f}% complete ({1:d} of {2:d})'.format(total_count/tot*100., total_count, tot))
-    writer = ccdc.io.CrystalWriter(join(outdir, '{0:s}.cif'.format(h.identifier)), append=False)
-    writer.write(h)
-    writer.close()
 f.close()
 end_time = time.time()
 elapsed = end_time-start_time

@@ -12,10 +12,15 @@ MOF subset is here
 import time
 import ccdc.search
 import ccdc.io
+from ccdc.io import CrystalReader, MoleculeWriter, CrystalWriter
 from os.path import join
 import os, sys
 import csv
 import numpy as np
+
+# structure stuff
+sys.path.insert(0, '/home/pboyd/modules/fa3ps')
+from faps import Structure, Atom, Cell, minimum_image, min_distance
 
 avo = 6.02214076e23 
 cm3 = 1e24  # A^3 / cm^3
@@ -47,19 +52,16 @@ def adsorbaphore_search():
     
     # centroid between aromatic planes?
     searcher.add_centroid('CENT3', 'CENT1', 'CENT2')
-    searcher.add_dummy_point('CENT3D', 0.0, 'CENT3', 'CENT2')
     
     # Make sure the angle is between -5 and +5 deg?
-    searcher.add_plane_angle_constraint('ANGLE', 'PLANE1', 'PLANE2', ('<=', 10))
-    searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (6.8, 8.4), vdw_corrected=False, type='any')
+    searcher.add_plane_angle_constraint('ANGLE', 'PLANE1', 'PLANE2', (-5, 5))
+    searcher.add_distance_constraint('DIST', 'CENT1', 'CENT2', (6.8, 7.4), vdw_corrected=False, type='any')
     
     # Make sure the two aromatic planes are aligned
-    searcher.add_vector('VEC1', 'CENT1', (sub1, 0))
+    searcher.add_vector('VEC1', 'CENT1', (sub1, 1))
     searcher.add_vector('VECN', 'CENT1', 'CENT2')
-    searcher.add_vector_angle_constraint('ANGLE_N', 'VEC1', 'VECN', (70, 100)) 
+    searcher.add_vector_angle_constraint('ANGLE_N', 'VEC1', 'VECN', (81, 99)) 
 
-    # To check if atoms between adsorbaphore
-    # searcher.add
     return searcher
 
 searcher = adsorbaphore_search()
@@ -75,33 +77,41 @@ cwriter = csv.writer(f)
 cwriter.writerow(['CSD_NAME', 'UNIT_VOL_A^3', 'CRYSTAL_MOLAR_DENS_MMOL_CM^3', 'SUBSTRUCT_COUNT', 'SUBSTRUCT_DENS_MMOL_CM^3', 'PLANAR_ANGLE', 'PLANAR_ANGLE_STDEV', 'PLANAR_DIST', 'PLANAR_DIST_STDEV'])
 # mine just the mofs
 success_count, total_count = 0,0
-
 searcher.settings.no_disorder = 'all'
 searcher.settings.max_r_factor = 5.0
 # mine just the mofs
 mof_csd = join(csd_subsetdir, 'MOF_subset.gcd')
-tot = len(mof_csd)
+tot = len(ccdc.io.EntryReader(mof_csd))
 for h in ccdc.io.EntryReader(mof_csd):
     # create a faps structure
     fstr = Structure(h.identifier)
     # need to ensure that h.molecule will give you the whole unit cell
     # atoms instead of just the asymmetric ones.
     for atom in h.molecule.atoms:
-        coords = (atom.coordinates.x, atom.coordinates.y, atom.coordinates.z)
-        fstr.atoms.append(Atom(idx=atom.index ,
-                               pos=coords, 
-                               at_type=atom.atomic_symbol, 
-                               mass=atom.atomic_weight,
-                               parent=fstr))
-        assert (atom.index == len(fstr.atoms)-1)
+        if atom.coordinates is not None:
+            coords = (atom.coordinates.x, atom.coordinates.y, atom.coordinates.z)
+            fstr.atoms.append(Atom(idx=atom.index ,
+                                   pos=coords, 
+                                   at_type=atom.atomic_symbol, 
+                                   mass=atom.atomic_weight,
+                                   parent=fstr))
+            assert (atom.index == len(fstr.atoms)-1)
+        else:
+            # just append the last known coordinates (prob a terrible idea :P)
+            fstr.atoms.append(Atom(idx=atom.index,
+                                   pos=coords, 
+                                   at_type=atom.atomic_symbol, 
+                                   mass=atom.atomic_weight,
+                                   parent=fstr))
 
-    pp = (h.cell_lengths.a, h.cell_lengths.b, h.cell_lengths.c,
-            h.cell_angles.alpha, h.cell_angles.beta, h.cell_angles.gamma)
+    cry = h.crystal
+    pp = (cry.cell_lengths.a, cry.cell_lengths.b, cry.cell_lengths.c,
+            cry.cell_angles.alpha, cry.cell_angles.beta, cry.cell_angles.gamma)
     fstr.cell.params = pp
     [at.get_fractional_coordinate() for at in fstr.atoms]
-    local_hits = searcher.search(h.crystal, max_hits_per_structure=10000)
+    local_hits = searcher.search(cry, max_hits_per_structure=10000)
     nhits = len(local_hits)
-    print('{0:s} hits: {1:d}'.format(h.identifier, nhits))
+    #print('{0:s} hits: {1:d}'.format(h.identifier, nhits))
     if(nhits>0):
         rm = []
 
@@ -109,6 +119,7 @@ for h in ccdc.io.EntryReader(mof_csd):
         # this does not work!
         # https://ccdc.cam.ac.uk/forum/csd_python_api/Crystallography/25cf2d8f-b11c-e711-84d4-005056975d8a#26cf2d8f-b11c-e711-84d4-005056975d8a
         # TODO(pboyd): make sure this works with a shifted benzene model (half in the unit cell + half out!)
+
         for i, hit in enumerate(local_hits):
             benz1, benz2 = hit.match_substructures()
             atom_list = hit.match_atoms()
@@ -169,15 +180,16 @@ for h in ccdc.io.EntryReader(mof_csd):
         AVG_DIST = np.array(d).mean()
         STD_DIST = np.array(d).std()
     
-        vol = cm3 / h.cell_volume * 1000 # how many unit cells fit into a cubic centimetre
+        vol = cm3 / cry.cell_volume * 1000 # how many unit cells fit into a cubic centimetre
         molar_dens = nhits * vol / avo # in mol/cm^3
         
-        cwriter.writerow([h.identifier, h.cell_volume, vol/avo, nhits, molar_dens, AVG_ANGLE, STD_ANGLE, AVG_DIST, STD_DIST])
+        cwriter.writerow([h.identifier, cry.cell_volume, vol/avo, nhits, molar_dens, AVG_ANGLE, STD_ANGLE, AVG_DIST, STD_DIST])
+        writer = ccdc.io.CrystalWriter(join(outdir, '{0:s}.cif'.format(h.identifier)), append=False)
+        writer.write(h)
+        writer.close()
+    print('{0:s} hits: {1:d}'.format(h.identifier, nhits))
     total_count += 1
     print('{0:.2f}% complete ({1:d} of {2:d})'.format(total_count/tot*100., total_count, tot))
-    writer = ccdc.io.CrystalWriter(join(outdir, '{0:s}.cif'.format(h.identifier)), append=False)
-    writer.write(h)
-    writer.close()
 f.close()
 
 end_time = time.time()
